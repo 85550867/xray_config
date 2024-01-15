@@ -1,0 +1,216 @@
+{
+    "log": {
+        "access": "/data/xray/logs/access.log",
+        "error": "/data/xray/logs/error.log",
+        "loglevel": "warning"
+    },
+    "inbounds": [
+        // xtls
+        {
+            "listen": "0.0.0.0", 
+            "port": 443, 
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "<UUID>",
+                        "flow": "xtls-rprx-vision"
+                    }
+                ],
+                "decryption": "none",
+                "fallbacks": [
+                    {
+                         // 回流到16666vmess
+                        "path": "/path",
+                        "dest": 16666
+                    },
+                    {
+                        // 回流到nginx
+                        "dest": 11443,
+                        "xver": 1
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "tls",
+                "tlsSettings": {
+                    "rejectUnknownSni": true,
+                    "minVersion": "1.2",
+                    "certificates": [ 
+                        // 证书，若多个域名配置多个
+                        {
+                            "ocspStapling": 3600,
+                            "certificateFile": "/data/xray/key/server.crt", 
+                            "keyFile": "/data/xray/key/server.key"
+                        },
+                        {
+                            "ocspStapling": 3600,
+                            "certificateFile": "/data/xray/key/server_v2.crt", 
+                            "keyFile": "/data/xray/key/server_v2.key"
+                        }
+                    ]
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },  
+        // vmess
+        // 使用CDN需要ws配置，保留了vmess
+        // 通过下面回流转发到这
+        {
+            "port": 16666,
+            "listen": "127.0.0.1",
+            "protocol": "vmess",
+            "settings": {
+              "clients": [
+                {
+                  "id": "<UUID>",
+                  "level": 1,
+                  "alterId": 0
+                },
+                {
+                  "id": "<UUID>",
+                  "level": 1,
+                  "alterId": 0
+                }
+              ]
+            },
+          "levels": {
+            "1": {
+              "handshake": 4,
+              "connIdle": 900,
+              "uplinkOnly": 2,
+              "downlinkOnly": 5,
+              "statsUserUplink": false,
+              "statsUserDownlink": false,
+              "bufferSize": 8192
+              }
+            },
+          "streamSettings": {
+              "network": "ws",
+              "wsSettings": {
+              "path": "/path"
+              }
+            }
+          },
+          // vless，具体参考上面vmess说明
+          {
+            "port": 13333,
+            "listen": "127.0.0.1",
+            "protocol": "vless",
+            "settings": {
+            "decryption": "none",
+                "clients": [
+                    {
+                        "id": "<UUID>"
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "ws",
+                "wsSettings": {
+                    "path": "/images-9ae67bd4"
+                }
+            }
+          }
+    ],
+    // 出口配置
+    "outboundDetour": [
+        {
+          "protocol": "freedom",
+          "settings": {
+                 "domainStrategy": "UseIPv6"
+          },
+          "tag": "ipv6"
+        },
+        {
+            "protocol": "freedom",
+            "settings": {
+                   "domainStrategy": "UseIPv4"
+            },
+            "tag": "ipv4"
+          },
+        {
+          "protocol": "blackhole",
+          "settings": {},
+          "tag": "blocked"
+        },
+        {
+          "tag": "warp",
+          "protocol": "socks",
+          "settings": {
+              "servers": [
+                  {
+                      "address": "127.0.0.1",
+                      "port": 40000,
+                      "users": []
+                  }
+              ]
+          }
+        }
+      ],
+      // 路由
+      "routing": {
+        "strategy": "rules",
+        "settings": {
+          "rules": [
+            {
+              "type": "field",
+    
+              "ip": [
+                "0.0.0.0/8",
+                "10.0.0.0/8",
+                "100.64.0.0/10",
+                "127.0.0.0/8",
+                "169.254.0.0/16",
+                "172.16.0.0/12",
+                "192.0.0.0/24",
+                "192.0.2.0/24",
+                "192.168.0.0/16",
+                "198.18.0.0/15",
+                "198.51.100.0/24",
+                "203.0.113.0/24",
+                "::1/128",
+                "fc00::/7",
+                "fe80::/10"
+              ],
+    
+              "outboundTag": "blocked"
+            },
+            {
+              "type": "field",
+              "domain": [
+                  "openai.com",
+                  "ipinfo.io",
+                  "ai.com",
+                  "ip.sb",
+                  "geosite:netflix"
+              ],
+              "outboundTag": "warp"
+            },
+            {
+              "type": "field",
+              "domain": [
+                  "geosite:google"
+              ],
+              "outboundTag": "ipv4"
+            },
+            {
+              "type": "field",
+              "domain": [
+                  "www.openai.com"
+              ],
+              "outboundTag": "ipv6"
+            }
+          ]
+        }
+      }
+}
+
